@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kingdom Jumpstart Quiz</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.260.0/umd/lucide.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Playfair+Display:ital,wght@0,700;1,700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Nunito', 'sans-serif'], 
+                        serif: ['Playfair Display', 'serif'],
+                    },
+                    colors: {
+                        kingdom: {
+                            gold: '#FBBF24',
+                            dark: '#0F172A',
+                            card: '#1E293B',
+                            light: '#F8FAFC',
+                            accent: '#38BDF8'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #0F172A; color: #F8FAFC; overflow-x: hidden; }
+        .glass-panel { background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(12px); border: 2px solid rgba(255, 255, 255, 0.1); }
+        .gold-gradient { background: linear-gradient(135deg, #FBBF24 0%, #D97706 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .gold-bg { background: linear-gradient(135deg, #FBBF24 0%, #D97706 100%); }
+        
+        /* Smooth transitions for single-page questions */
+        .slide-in-right { animation: slideInRight 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+        .slide-out-left { animation: slideOutLeft 0.3s forwards; }
+        .fade-in { animation: fadeIn 0.5s ease-in; }
+        
+        @keyframes slideInRight { from { opacity: 0; transform: translateX(50px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes slideOutLeft { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(-50px); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Big accessible buttons */
+        .btn-scale { transition: all 0.2s ease; }
+        .btn-scale:hover { transform: translateY(-3px) scale(1.02); }
+        .btn-scale:active { transform: translateY(1px) scale(0.98); }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0F172A; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script>
+        Babel.registerPreset('react-classic', {
+            presets: [
+                [Babel.availablePresets.react, { runtime: 'classic' }]
+            ]
+        });
+    </script>
+    <script type="text/babel" data-type="module" data-presets="react-classic">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDocs, collection, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Fallback config for local usage
+        const defaultFirebaseConfig = {
+            apiKey: "AIzaSyDummyKeyForLocalTesting",
+            authDomain: "dummy-domain.firebaseapp.com",
+            projectId: "dummy-project",
+            storageBucket: "dummy-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef"
+        };
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'kingdom-visual-local';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : defaultFirebaseConfig;
+        
+        let app, db, auth;
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+        } catch(e) {
+            console.warn("Firebase initialization skipped. Local storage will be used as fallback.", e);
+        }
+
+        const { useState, useEffect, useRef } = React;
+
+        // Bulletproof dynamic Lucide Icon component to replace Emojis
+        const LucideIcon = ({ name, className }) => {
+            const iconRef = useRef(null);
+            useEffect(() => {
+                if (iconRef.current && window.lucide && window.lucide.icons[name]) {
+                    const svg = window.lucide.icons[name].toSvg({ class: className });
+                    iconRef.current.innerHTML = svg;
+                }
+            }, [name, className]);
+            return <span ref={iconRef} className="inline-flex items-center justify-center"></span>;
+        };
+
+        // 48 Questions using professional Lucide icons instead of emojis
+        const questions = [
+            // Motivational Gifts (Romans 12)
+            { id: 1, text: "I instantly notice when something is unfair or unethical at work.", icon: "scale", cat: "Motivational", trait: "Prophecy" },
+            { id: 2, text: "I love doing the behind-the-scenes work so my team can shine.", icon: "wrench", cat: "Motivational", trait: "Serving" },
+            { id: 3, text: "I always want to see the facts, data, and proof before deciding.", icon: "bar-chart-2", cat: "Motivational", trait: "Teaching" },
+            { id: 4, text: "I am naturally good at cheering people up and motivating them.", icon: "megaphone", cat: "Motivational", trait: "Exhortation" },
+            { id: 5, text: "I love finding ways to make money so I can give it away to good causes.", icon: "coins", cat: "Motivational", trait: "Giving" },
+            { id: 6, text: "I enjoy organizing messy projects into simple, step-by-step plans.", icon: "clipboard-list", cat: "Motivational", trait: "Administration" },
+            { id: 7, text: "I can easily tell when a coworker is stressed or hurting emotionally.", icon: "heart", cat: "Motivational", trait: "Mercy" },
+            { id: 8, text: "I am not afraid to speak the hard truth, even if it upsets the room.", icon: "message-square-warning", cat: "Motivational", trait: "Prophecy" },
+            { id: 9, text: "I prefer taking action and fixing a problem rather than just talking about it.", icon: "hammer", cat: "Motivational", trait: "Serving" },
+            { id: 10, text: "I enjoy writing instructions, manuals, or standard operating procedures.", icon: "book-open", cat: "Motivational", trait: "Teaching" },
+            { id: 11, text: "People often come to me when they feel stuck and need advice.", icon: "handshake", cat: "Motivational", trait: "Exhortation" },
+            { id: 12, text: "I am very careful and strategic with how I manage budgets and resources.", icon: "trending-up", cat: "Motivational", trait: "Giving" },
+            { id: 13, text: "I am great at delegating tasks and making sure deadlines are met.", icon: "clock", cat: "Motivational", trait: "Administration" },
+            { id: 14, text: "I care more about a positive work environment than hitting aggressive goals.", icon: "leaf", cat: "Motivational", trait: "Mercy" },
+            { id: 15, text: "I feel a strong need to confront bad behavior or broken rules in the company.", icon: "shield-alert", cat: "Motivational", trait: "Prophecy" },
+            { id: 16, text: "I find joy in anticipating what my boss or team needs before they ask.", icon: "coffee", cat: "Motivational", trait: "Serving" },
+            { id: 17, text: "I get frustrated when people make decisions based on emotion instead of logic.", icon: "brain", cat: "Motivational", trait: "Teaching" },
+            { id: 18, text: "I love helping employees figure out their career path and potential.", icon: "sparkles", cat: "Motivational", trait: "Exhortation" },
+            { id: 19, text: "I believe my business is simply a tool to fund God's work on earth.", icon: "globe", cat: "Motivational", trait: "Giving" },
+            { id: 20, text: "I am energized by leading a team and taking charge of complex situations.", icon: "anchor", cat: "Motivational", trait: "Administration" },
+            { id: 21, text: "I am very patient with people who make mistakes and try to understand why.", icon: "users", cat: "Motivational", trait: "Mercy" },
+
+            // Ministry Gifts (Ephesians 4)
+            { id: 22, text: "I love starting brand new projects, launching businesses, or entering new markets.", icon: "rocket", cat: "Ministry", trait: "Apostle" },
+            { id: 23, text: "I frequently challenge the company if we start drifting away from our core mission.", icon: "compass", cat: "Ministry", trait: "Prophet" },
+            { id: 24, text: "I am excellent at networking, pitching ideas, and bringing in new clients.", icon: "mic", cat: "Ministry", trait: "Evangelist" },
+            { id: 25, text: "I view keeping my employees happy and loyal as the true sign of success.", icon: "shield", cat: "Ministry", trait: "Pastor" },
+            { id: 26, text: "I thrive when I have to train new hires and break down complex ideas for them.", icon: "school", cat: "Ministry", trait: "Teacher_Min" },
+            { id: 27, text: "Once a project is running smoothly, I get bored and want to build something new.", icon: "building", cat: "Ministry", trait: "Apostle" },
+            { id: 28, text: "I have a knack for seeing future industry trends before my competitors do.", icon: "telescope", cat: "Ministry", trait: "Prophet" },
+            { id: 29, text: "I naturally shape our brand's story to attract attention and win over the public.", icon: "star", cat: "Ministry", trait: "Evangelist" },
+            { id: 30, text: "I protect my team from upper-management pressure so they can work in peace.", icon: "umbrella", cat: "Ministry", trait: "Pastor" },
+            { id: 31, text: "I am deeply invested in creating educational courses or programs for our staff.", icon: "file-text", cat: "Ministry", trait: "Teacher_Min" },
+            { id: 32, text: "I am not afraid to go into 'uncharted territory' and take major entrepreneurial risks.", icon: "map", cat: "Ministry", trait: "Apostle" },
+            { id: 33, text: "I act as the 'conscience' of the business, warning people when we take wrong turns.", icon: "alert-triangle", cat: "Ministry", trait: "Prophet" },
+            { id: 34, text: "I am highly persuasive and love convincing people to join our cause or buy our product.", icon: "users", cat: "Ministry", trait: "Evangelist" },
+            { id: 35, text: "I spend a lot of time counseling my staff and helping them with their personal lives.", icon: "coffee", cat: "Ministry", trait: "Pastor" },
+            { id: 36, text: "I believe the strength of a company lies entirely in its internal knowledge and training.", icon: "book", cat: "Ministry", trait: "Teacher_Min" },
+
+            // Spiritual Gifts (1 Corinthians 12)
+            { id: 37, text: "In a crisis, I often get a sudden, clear idea that solves the problem instantly.", icon: "lightbulb", cat: "Spiritual", trait: "Wisdom" },
+            { id: 38, text: "Sometimes I 'just know' a hidden fact about a deal or person without being told.", icon: "search", cat: "Spiritual", trait: "Knowledge" },
+            { id: 39, text: "I have massive confidence in a project succeeding, even when the numbers look bad.", icon: "mountain", cat: "Spiritual", trait: "Faith" },
+            { id: 40, text: "I can usually tell if a potential hire has bad motives within five minutes of meeting them.", icon: "eye", cat: "Spiritual", trait: "Discernment" },
+            { id: 41, text: "I often provide the 'missing puzzle piece' in a meeting that makes everything click.", icon: "puzzle", cat: "Spiritual", trait: "Wisdom" },
+            { id: 42, text: "I occasionally sense what the root cause of a business problem is before seeing the data.", icon: "target", cat: "Spiritual", trait: "Knowledge" },
+            { id: 43, text: "Setbacks do not scare me; I have a supernatural peace that a breakthrough is coming.", icon: "wind", cat: "Spiritual", trait: "Faith" },
+            { id: 44, text: "I have accurately spotted toxic partnerships before they could damage the company.", icon: "activity", cat: "Spiritual", trait: "Discernment" },
+            { id: 45, text: "I can take messy, confusing reports and instantly boil them down to one clear action.", icon: "zap", cat: "Spiritual", trait: "Wisdom" },
+            { id: 46, text: "I sometimes uncover critical information by 'accident' that saves the business.", icon: "key", cat: "Spiritual", trait: "Knowledge" },
+            { id: 47, text: "I am willing to take 'crazy' leaps of faith because I feel God telling me to do it.", icon: "cloud-lightning", cat: "Spiritual", trait: "Faith" },
+            { id: 48, text: "I can literally 'feel' the atmosphere of a boardroom change from good to bad.", icon: "thermometer", cat: "Spiritual", trait: "Discernment" }
+        ];
+
+        const wisdomDB = {
+            "Prophecy": {
+                desc: "You have an internal compass for ethics, operational integrity, and truth. You see the 'black and white' where others see gray.",
+                avoids: [
+                    { text: "Being overly critical or harsh when delivering necessary corrections.", scripture: "Ephesians 4:15" },
+                    { text: "Discarding a project entirely just because of a minor flaw.", scripture: "Zechariah 4:10" }
+                ],
+                tries: ["Audit company ethics policies.", "Lead quality assurance.", "Speak up in strategy meetings when values are compromised."]
+            },
+            "Serving": {
+                desc: "You are the operational backbone. You find deep joy in empowering leaders and removing obstacles from the team's path.",
+                avoids: [
+                    { text: "Saying 'yes' to every request until you burn out.", scripture: "Exodus 18:18" },
+                    { text: "Allowing others to take credit for your crucial backend work out of false humility.", scripture: "Galatians 6:4" }
+                ],
+                tries: ["Optimize internal logistics.", "Take on a Chief of Staff role.", "Anticipate the CEO's operational roadblocks."]
+            },
+            "Teaching": {
+                desc: "You are driven by empirical data, research, and clarity. You love creating systems of knowledge.",
+                avoids: [
+                    { text: "Getting paralyzed by 'analysis paralysis' and failing to act.", scripture: "Ecclesiastes 11:4" },
+                    { text: "Focusing so much on data that you ignore the human element.", scripture: "1 Corinthians 8:1" }
+                ],
+                tries: ["Build Standard Operating Procedures (SOPs).", "Lead R&D initiatives.", "Create onboarding manuals for new hires."]
+            },
+            "Exhortation": {
+                desc: "You are the ultimate motivator. You naturally coach people through setbacks and pull out their hidden potential.",
+                avoids: [
+                    { text: "Avoiding necessary conflict because you want to keep the peace.", scripture: "Proverbs 27:6" },
+                    { text: "Over-investing time in employees who refuse to change.", scripture: "Matthew 7:6" }
+                ],
+                tries: ["Lead sales training or motivational stand-ups.", "Manage client retention.", "Mentorship programs within the company."]
+            },
+            "Giving": {
+                desc: "You see business as an economic engine for the Kingdom. You are strategic with resources and generous with profits.",
+                avoids: [
+                    { text: "Funding projects purely on emotion without strategic vetting.", scripture: "Proverbs 21:5" },
+                    { text: "Feeling guilty about generating wealth.", scripture: "Deuteronomy 8:18" }
+                ],
+                tries: ["Oversee corporate philanthropy.", "Manage investment portfolios.", "Structure profit-sharing models for employees."]
+            },
+            "Administration": {
+                desc: "You are a master organizer. You can take chaotic visions and build the structural pipelines required to execute them.",
+                avoids: [
+                    { text: "Micromanaging highly competent team members.", scripture: "Proverbs 16:9" },
+                    { text: "Valuing the 'process' more than the 'people'.", scripture: "Mark 2:27" }
+                ],
+                tries: ["Act as Project Manager or COO.", "Scale company operations.", "Implement new software tracking systems."]
+            },
+            "Mercy": {
+                desc: "You are highly attuned to the emotional atmosphere. You prioritize mental health, culture, and conflict resolution.",
+                avoids: [
+                    { text: "Tolerating toxic behavior because you feel sorry for the offender.", scripture: "Proverbs 13:24" },
+                    { text: "Absorbing the emotional weight of the entire office.", scripture: "Galatians 6:5" }
+                ],
+                tries: ["Lead Human Resources.", "Mediate internal disputes.", "Design employee wellness programs."]
+            },
+            "Apostle": {
+                desc: "You are the Pioneer. You love starting things from scratch, breaking into new markets, and establishing the foundational DNA.",
+                avoids: [
+                    { text: "Abandoning a project before the foundation is fully cured.", scripture: "Luke 14:28" },
+                    { text: "Viewing maintenance tasks as 'beneath' you.", scripture: "Zechariah 4:10" }
+                ],
+                tries: ["Found a new startup.", "Open a new regional branch.", "Lead the 'skunkworks' innovation team."]
+            },
+            "Prophet": {
+                desc: "You are the Visionary Disruptor. You forecast industry shifts and act as the corporate conscience.",
+                avoids: [
+                    { text: "Delivering visionary pivots without a practical roadmap.", scripture: "Habakkuk 2:2" },
+                    { text: "Isolating yourself because 'no one understands the vision'.", scripture: "Proverbs 15:22" }
+                ],
+                tries: ["Join the Board of Directors.", "Lead strategic pivoting.", "Audit the company's long-term trajectory."]
+            },
+            "Evangelist": {
+                desc: "You are the Master Marketer. You excel at networking, pitching, and bringing external people into the organization's vision.",
+                avoids: [
+                    { text: "Over-promising deliverables to win a deal.", scripture: "Proverbs 10:9" },
+                    { text: "Ignoring existing clients in the pursuit of new ones.", scripture: "Proverbs 27:23" }
+                ],
+                tries: ["Lead external PR and Branding.", "Spearhead enterprise sales.", "Represent the company at industry conferences."]
+            },
+            "Pastor": {
+                desc: "You are the Shepherd. You view team loyalty and employee well-being as the true markers of corporate success.",
+                avoids: [
+                    { text: "Protecting underperforming employees to the detriment of the company.", scripture: "Proverbs 10:4" },
+                    { text: "Failing to set boundaries between personal and professional life.", scripture: "Proverbs 25:17" }
+                ],
+                tries: ["Manage middle management.", "Foster company culture.", "Lead employee retention initiatives."]
+            },
+            "Teacher_Min": {
+                desc: "You are the Architect of Knowledge. You thrive on breaking down complex industry concepts into scalable training.",
+                avoids: [
+                    { text: "Creating training systems that are too academic and not practical.", scripture: "James 1:22" },
+                    { text: "Refusing to update curriculum when the market changes.", scripture: "Isaiah 43:19" }
+                ],
+                tries: ["Build the corporate university.", "Author industry white-papers.", "Host internal masterclasses."]
+            },
+            "Wisdom": {
+                desc: "You possess the supernatural ability to receive specific, actionable strategies during complex crises.",
+                avoids: [
+                    { text: "Relying purely on intuition and neglecting basic due diligence.", scripture: "Proverbs 18:13" }
+                ],
+                tries: ["Act as a crisis consultant.", "Sit in on high-level negotiations.", "Provide strategic tie-breaking votes."]
+            },
+            "Knowledge": {
+                desc: "You frequently experience moments of intuitive insight regarding hidden facts or root problems.",
+                avoids: [
+                    { text: "Using inside knowledge to manipulate rather than serve.", scripture: "Philippians 2:3" }
+                ],
+                tries: ["Vet potential mergers.", "Perform deep-dive risk assessments.", "Lead exploratory market research."]
+            },
+            "Faith": {
+                desc: "You have an unwavering, supernatural confidence in specific ventures even when the odds are stacked against you.",
+                avoids: [
+                    { text: "Confusing blind presumption with genuine spiritual faith.", scripture: "Luke 4:12" }
+                ],
+                tries: ["Champion high-risk/high-reward projects.", "Encourage the executive team during downturns.", "Secure aggressive funding rounds."]
+            },
+            "Discernment": {
+                desc: "You can read the true motives of people and sense toxic partnerships before they cause damage.",
+                avoids: [
+                    { text: "Becoming cynical or suspicious of everyone you meet.", scripture: "1 Corinthians 13:7" }
+                ],
+                tries: ["Interview C-suite candidates.", "Audit third-party vendors.", "Review legal partnership contracts."]
+            }
+        };
+
+        const genericTries = [
+            "Start a business prayer journal.", "Dedicate your profits to the Lord.", "Seek out a Kingdom-minded mentor.",
+            "Network with other Christian entrepreneurs.", "Fast before making major financial decisions.",
+            "Incorporate your faith into your core values.", "Treat your employees like family.", "Operate with extreme financial transparency.",
+            "View your business as a ministry platform.", "Forgive business debts when led by the Spirit.", "Pray over your office space."
+        ];
+
+        const genericAvoids = [
+            { text: "Compromising your integrity for a quick profit.", scripture: "Mark 8:36" },
+            { text: "Allowing your business to become an idol that replaces God.", scripture: "Exodus 20:3" },
+            { text: "Partnering with individuals who do not share your core ethical values.", scripture: "2 Corinthians 6:14" }
+        ];
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const [authLoading, setAuthLoading] = useState(true);
+            const [currentView, setCurrentView] = useState('welcome'); // welcome, quiz, analyzing, results, past
+            const [answers, setAnswers] = useState({});
+            const [calculatedResults, setCalculatedResults] = useState(null);
+            const [pastResultsList, setPastResultsList] = useState([]);
+
+            // Text-to-Speech Engine
+            const speakText = (text) => {
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.rate = 0.9;
+                    utterance.pitch = 1;
+                    window.speechSynthesis.speak(utterance);
+                }
+            };
+
+            const stopSpeech = () => {
+                if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            }
+
+            useEffect(() => {
+                if(!auth) { setAuthLoading(false); return; }
+                const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+                    if (currentUser) {
+                        setUser(currentUser);
+                        setAuthLoading(false);
+                    } else {
+                        try {
+                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                await signInWithCustomToken(auth, __initial_auth_token);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (err) {
+                            console.error("Auth error", err);
+                            setAuthLoading(false);
+                        }
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            const startQuiz = () => {
+                setAnswers({});
+                setCurrentView('quiz');
+            };
+
+            const submitQuiz = () => {
+                setCurrentView('analyzing');
+                stopSpeech();
+                
+                let scores = {};
+                Object.keys(wisdomDB).forEach(k => scores[k] = 0);
+                
+                questions.forEach(q => {
+                    const ans = answers[q.id] || 3; 
+                    scores[q.trait] = (scores[q.trait] || 0) + ans;
+                });
+
+                let categories = { "Motivational": [], "Ministry": [], "Spiritual": [] };
+                
+                questions.forEach(q => {
+                    if(!categories[q.cat].includes(q.trait)) categories[q.cat].push(q.trait);
+                });
+
+                const processCategory = (catName, traits) => {
+                    let catScores = traits.map(t => ({ trait: t, score: scores[t] }));
+                    catScores.sort((a,b) => b.score - a.score); 
+                    
+                    let selected = [catScores[0], catScores[1]];
+                    for(let i=2; i<catScores.length; i++) {
+                        if (catScores[i].score >= 12) {
+                            selected.push(catScores[i]);
+                        }
+                    }
+                    return selected.map(s => s.trait);
+                };
+
+                const topMotivational = processCategory("Motivational", categories["Motivational"]);
+                const topMinistry = processCategory("Ministry", categories["Ministry"]);
+                const topSpiritual = processCategory("Spiritual", categories["Spiritual"]);
+                
+                const allTopTraits = [...topMotivational, ...topMinistry, ...topSpiritual];
+
+                let generatedAvoids = [];
+                allTopTraits.forEach(trait => {
+                    if(wisdomDB[trait] && wisdomDB[trait].avoids) {
+                        generatedAvoids.push(...wisdomDB[trait].avoids);
+                    }
+                });
+                generatedAvoids = generatedAvoids.sort(() => 0.5 - Math.random());
+                if (generatedAvoids.length < 10) {
+                    let needed = 10 - generatedAvoids.length;
+                    generatedAvoids.push(...genericAvoids.slice(0, needed));
+                }
+                generatedAvoids = generatedAvoids.slice(0, 10);
+
+                let generatedTries = [];
+                allTopTraits.forEach(trait => {
+                    if(wisdomDB[trait] && wisdomDB[trait].tries) {
+                        generatedTries.push(...wisdomDB[trait].tries);
+                    }
+                });
+                let usedGenerics = [...genericTries].sort(() => 0.5 - Math.random());
+                while (generatedTries.length < 30 && usedGenerics.length > 0) {
+                    generatedTries.push(usedGenerics.pop());
+                }
+                generatedTries = generatedTries.slice(0, 30);
+
+                const resultPayload = {
+                    date: new Date().toISOString(),
+                    scores: scores,
+                    topMotivational,
+                    topMinistry,
+                    topSpiritual,
+                    allTopTraits,
+                    avoids: generatedAvoids,
+                    tries: generatedTries
+                };
+
+                setTimeout(() => {
+                    setCalculatedResults(resultPayload);
+                    setCurrentView('results');
+                    saveToCloud(resultPayload);
+                }, 2500);
+            };
+
+            const saveToCloud = async (payload) => {
+                if(!db || !user) return;
+                try {
+                    const resultRef = doc(collection(db, 'artifacts', appId, 'users', user.uid, 'quiz_results'));
+                    await setDoc(resultRef, { ...payload, timestamp: serverTimestamp() });
+                } catch(e) { console.error("Cloud save failed", e); }
+            };
+
+            const fetchPastResults = async () => {
+                if(!db || !user) return;
+                setCurrentView('loading_past');
+                try {
+                    const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'quiz_results'), orderBy('timestamp', 'desc'));
+                    const snap = await getDocs(q);
+                    let hist = [];
+                    snap.forEach(doc => hist.push({id: doc.id, ...doc.data()}));
+                    setPastResultsList(hist);
+                    setCurrentView('past');
+                } catch(e) {
+                    setCurrentView('welcome');
+                }
+            };
+
+            if (authLoading) return <div className="min-h-screen flex items-center justify-center font-sans text-xl">Connecting...</div>;
+
+            return (
+                <div className="min-h-screen bg-kingdom-dark relative text-kingdom-light">
+                    <div className="fixed top-0 left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-kingdom-accent/5 rounded-full blur-[120px] pointer-events-none"></div>
+                    
+                    <nav className="p-4 md:p-6 max-w-5xl mx-auto flex justify-between items-center relative z-10">
+                        <h1 onClick={() => { stopSpeech(); setCurrentView('welcome'); }} className="font-serif text-xl md:text-2xl font-bold text-white flex items-center gap-2 cursor-pointer hover:text-kingdom-gold transition-colors">
+                            <LucideIcon name="crown" className="w-8 h-8 text-kingdom-gold" /> Kingdom Jumpstart Quiz
+                        </h1>
+                        {user && currentView !== 'welcome' && currentView !== 'quiz' && (
+                            <button onClick={() => setCurrentView('welcome')} className="text-sm font-bold bg-slate-800 px-4 py-2 rounded-full hover:bg-slate-700 transition-colors">
+                                Home
+                            </button>
+                        )}
+                    </nav>
+
+                    <main className="max-w-4xl mx-auto p-4 md:p-6 relative z-10 pb-24">
+                        {currentView === 'welcome' && <WelcomeView onStart={startQuiz} onHistory={fetchPastResults} dbExists={!!db} />}
+                        {currentView === 'quiz' && <AccessibleQuizView questions={questions} answers={answers} setAnswers={setAnswers} onSubmit={submitQuiz} speakText={speakText} stopSpeech={stopSpeech} />}
+                        {currentView === 'analyzing' && <AnalyzingView />}
+                        {currentView === 'results' && <ResultsView results={calculatedResults} wisdomDB={wisdomDB} />}
+                        {currentView === 'past' && <PastResultsView history={pastResultsList} onSelect={(res) => { setCalculatedResults(res); setCurrentView('results'); }} onBack={() => setCurrentView('welcome')} />}
+                    </main>
+                </div>
+            );
+        }
+
+        function WelcomeView({ onStart, onHistory, dbExists }) {
+            return (
+                <div className="flex flex-col items-center justify-center min-h-[70vh] text-center fade-in">
+                    <div className="mb-6 drop-shadow-2xl animate-bounce" style={{animationDuration: '3s'}}>
+                        <LucideIcon name="dna" className="w-24 h-24 text-kingdom-gold mx-auto" />
+                    </div>
+                    <h2 className="font-serif text-4xl md:text-6xl font-bold mb-6 text-white leading-tight">
+                        Find Your <span className="gold-gradient">Spiritual DNA</span>
+                    </h2>
+                    
+                    <p className="text-lg md:text-xl text-slate-300 max-w-2xl mx-auto mb-10 font-medium">
+                        Take the assessment to discover your unique gifts. Plus, receive a personalized <span className="text-kingdom-gold font-bold border-b border-kingdom-gold">AI assistance prompt</span> at the end to help you get started on your entrepreneurial journey!
+                    </p>
+                    
+                    <div className="bg-slate-800/50 p-6 rounded-3xl max-w-2xl mb-10 border border-slate-700/50 text-left">
+                        <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-kingdom-gold">
+                            <LucideIcon name="info" className="w-6 h-6" /> How this works:
+                        </h3>
+                        <ul className="space-y-4 text-lg text-slate-300 font-medium">
+                            <li className="flex items-start gap-3">
+                                <LucideIcon name="target" className="w-6 h-6 shrink-0 mt-1 text-kingdom-gold" /> <span>**48 Quick Questions:** We focus on one easy scenario at a time. No long scrolling pages!</span>
+                            </li>
+                            <li className="flex items-start gap-3">
+                                <LucideIcon name="image" className="w-6 h-6 shrink-0 mt-1 text-kingdom-gold" /> <span>**Visual & Clear:** Look at the icons to help understand the question instantly.</span>
+                            </li>
+                            <li className="flex items-start gap-3">
+                                <LucideIcon name="volume-2" className="w-6 h-6 shrink-0 mt-1 text-kingdom-gold" /> <span>**Read Aloud:** Click the "Listen" button on any question to have it read out loud to you.</span>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div className="flex flex-col w-full sm:w-auto gap-4">
+                        <button onClick={onStart} className="gold-bg text-kingdom-dark font-black py-5 px-12 rounded-full shadow-xl hover:scale-105 transition-transform text-xl flex items-center justify-center gap-3 w-full">
+                            Start Quiz <LucideIcon name="play" className="w-6 h-6 fill-current" />
+                        </button>
+                        {dbExists && (
+                            <button onClick={onHistory} className="glass-panel py-4 px-8 rounded-full hover:bg-slate-800 transition-colors text-lg font-bold flex items-center justify-center gap-2">
+                                <LucideIcon name="folder-open" className="w-5 h-5" /> View Past Results
+                            </button>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function AccessibleQuizView({ questions, answers, setAnswers, onSubmit, speakText, stopSpeech }) {
+            const [currentIndex, setCurrentIndex] = useState(0);
+            const [animDirection, setAnimDirection] = useState('slide-in-right');
+            const q = questions[currentIndex];
+
+            const progressPercent = ((currentIndex) / questions.length) * 100;
+
+            const handleAnswer = (value) => {
+                setAnswers(prev => ({ ...prev, [q.id]: value }));
+                setTimeout(() => handleNext(), 300);
+            };
+
+            const handleNext = () => {
+                stopSpeech();
+                if (currentIndex < questions.length - 1) {
+                    setAnimDirection('');
+                    setTimeout(() => {
+                        setCurrentIndex(c => c + 1);
+                        setAnimDirection('slide-in-right');
+                    }, 50);
+                } else {
+                    onSubmit();
+                }
+            };
+
+            const handleBack = () => {
+                stopSpeech();
+                if (currentIndex > 0) {
+                    setCurrentIndex(c => c - 1);
+                    setAnimDirection('fade-in'); 
+                }
+            };
+
+            const options = [
+                { val: 1, label: "Never", icon: "x", color: "bg-red-500/20 text-red-300 hover:bg-red-500/40 border-red-500/30 ring-red-500" },
+                { val: 2, label: "Rarely", icon: "thumbs-down", color: "bg-orange-500/20 text-orange-300 hover:bg-orange-500/40 border-orange-500/30 ring-orange-500" },
+                { val: 3, label: "Sometimes", icon: "minus", color: "bg-slate-600/40 text-slate-300 hover:bg-slate-500/60 border-slate-500/50 ring-slate-400" },
+                { val: 4, label: "Often", icon: "thumbs-up", color: "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/40 border-emerald-500/30 ring-emerald-500" },
+                { val: 5, label: "Always", icon: "check-circle", color: "bg-green-500/30 text-green-300 hover:bg-green-500/50 border-green-500/50 ring-green-500" }
+            ];
+
+            return (
+                <div className="max-w-2xl mx-auto mt-4">
+                    <div className="mb-8">
+                        <div className="flex justify-between text-sm font-bold text-slate-400 mb-3 px-2">
+                            <span>Question {currentIndex + 1} of {questions.length}</span>
+                            <span>{Math.round(progressPercent)}%</span>
+                        </div>
+                        <div className="h-4 w-full bg-slate-800 rounded-full overflow-hidden shadow-inner">
+                            <div className="h-full gold-bg transition-all duration-500 ease-out rounded-full" style={{width: `${progressPercent}%`}}></div>
+                        </div>
+                    </div>
+
+                    <div key={currentIndex} className={`glass-panel p-8 md:p-12 rounded-[2rem] shadow-2xl relative ${animDirection}`}>
+                        <button 
+                            onClick={() => speakText(q.text)}
+                            className="absolute top-6 right-6 bg-slate-800/80 p-3 rounded-full hover:bg-kingdom-accent hover:text-kingdom-dark transition-colors flex items-center justify-center shadow-lg border border-slate-700 group"
+                            title="Read Aloud"
+                        >
+                            <LucideIcon name="volume-2" className="w-6 h-6" />
+                            <span className="sr-only">Read question aloud</span>
+                        </button>
+
+                        <div className="flex flex-col items-center text-center mb-10 mt-4">
+                            <div className="mb-6 drop-shadow-xl bg-slate-800/50 p-6 rounded-full border border-slate-700">
+                                <LucideIcon name={q.icon} className="w-16 h-16 text-kingdom-gold" />
+                            </div>
+                            <h2 className="text-3xl md:text-4xl font-bold leading-tight text-white">
+                                "{q.text}"
+                            </h2>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                            {options.map(opt => {
+                                const isSelected = answers[q.id] === opt.val;
+                                return (
+                                    <button 
+                                        key={opt.val}
+                                        onClick={() => handleAnswer(opt.val)}
+                                        className={`btn-scale flex sm:flex-col items-center justify-start sm:justify-center gap-4 sm:gap-2 p-4 sm:py-6 rounded-2xl border-2 transition-all ${opt.color} ${isSelected ? `ring-2 scale-105` : ''}`}
+                                    >
+                                        <LucideIcon name={opt.icon} className="w-8 h-8 sm:w-10 sm:h-10" />
+                                        <span className="font-bold text-lg sm:text-sm">{opt.label}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    <div className="mt-8 flex justify-between items-center px-4">
+                        <button 
+                            onClick={handleBack}
+                            className={`px-6 py-4 rounded-xl font-bold flex items-center gap-2 transition-all ${currentIndex === 0 ? 'opacity-0 pointer-events-none' : 'text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700'}`}
+                        >
+                            <LucideIcon name="arrow-left" className="w-5 h-5" /> Back
+                        </button>
+                        
+                        {answers[q.id] !== undefined && (
+                            <button 
+                                onClick={handleNext}
+                                className="px-8 py-4 rounded-xl gold-bg text-kingdom-dark font-black flex items-center gap-2 hover:scale-105 transition-transform shadow-lg btn-scale ml-auto"
+                            >
+                                {currentIndex === questions.length - 1 ? 'Analyze Results ✨' : 'Next Question'} 
+                                {currentIndex !== questions.length - 1 && <LucideIcon name="arrow-right" className="w-5 h-5" />}
+                            </button>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function AnalyzingView() {
+            return (
+                <div className="flex flex-col items-center justify-center min-h-[60vh] fade-in">
+                    <div className="mb-8">
+                        <LucideIcon name="settings" className="w-24 h-24 text-kingdom-gold animate-spin" />
+                    </div>
+                    <h2 className="text-4xl font-serif font-bold text-white mb-4">Decoding Your DNA...</h2>
+                    <p className="text-xl text-slate-400 font-medium">Finding your top strengths.</p>
+                </div>
+            );
+        }
+
+        function ResultsView({ results, wisdomDB }) {
+            const [copied, setCopied] = useState(false);
+            if (!results) return null;
+
+            const formatTrait = (t) => t.replace('_Min', '');
+
+            const promptText = `I just took the Kingdom Jumpstart Quiz. Here is my exact spiritual DNA profile for business:
+
+**My Motivational Gifts (How I am internally wired):** ${results.topMotivational.map(formatTrait).join(', ')}
+**My Ministry Gifts (My natural leadership role):** ${results.topMinistry.map(formatTrait).join(', ')}
+**My Spiritual Gifts (My supernatural problem-solving tools):** ${results.topSpiritual.map(formatTrait).join(', ')}
+
+Please act as my expert Kingdom Business Coach. Based ONLY on this specific combination of strengths:
+1. Give me a 2-sentence summary of what kind of entrepreneur or employee I am.
+2. Ask me 1 highly targeted question about my current business goals so we can start creating a strategic plan together. Let's get started!`;
+
+            const handleCopy = () => {
+                navigator.clipboard.writeText(promptText).then(() => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 3000);
+                }).catch(err => {
+                    const ta = document.createElement("textarea");
+                    ta.value = promptText;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 3000);
+                });
+            };
+
+            return (
+                <div className="fade-in space-y-10">
+                    <div className="text-center py-8">
+                        <LucideIcon name="trophy" className="w-20 h-20 text-kingdom-gold mx-auto mb-6 drop-shadow-xl" />
+                        <h2 className="text-4xl md:text-6xl font-serif font-black text-white mb-4">Your Profile is Ready!</h2>
+                        <p className="text-xl text-slate-300 max-w-2xl mx-auto font-medium">Here is exactly how you are wired to succeed in the marketplace.</p>
+                    </div>
+
+                    <div className="glass-panel p-6 md:p-8 rounded-3xl border-2 border-kingdom-gold/40 bg-slate-800/80 shadow-2xl shadow-kingdom-gold/10 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-kingdom-gold/10 rounded-full blur-3xl -mr-20 -mt-20"></div>
+                        <h3 className="text-2xl md:text-3xl font-black text-white mb-3 flex items-center gap-3 relative z-10">
+                            <LucideIcon name="bot" className="w-8 h-8 text-kingdom-gold" /> Jumpstart Your AI Coach
+                        </h3>
+                        <p className="text-lg text-slate-300 mb-6 font-medium relative z-10">
+                            Copy this text and paste it into ChatGPT, Claude, or Gemini. It tells the AI exactly how you are wired so it can coach you perfectly!
+                        </p>
+                        
+                        <div className="bg-slate-900 rounded-2xl p-5 font-mono text-base text-slate-300 whitespace-pre-wrap mb-6 border border-slate-700 shadow-inner relative z-10">
+                            {promptText}
+                        </div>
+                        
+                        <button onClick={handleCopy} className="relative z-10 w-full sm:w-auto gold-bg text-kingdom-dark font-black py-4 px-8 rounded-xl shadow-lg hover:scale-105 transition-all text-xl flex items-center justify-center gap-3">
+                            {copied ? <><LucideIcon name="check-circle" className="w-6 h-6" /> Copied! Paste it now!</> : <><LucideIcon name="copy" className="w-6 h-6" /> Copy Prompt to Clipboard</>}
+                        </button>
+                    </div>
+
+                    <div className="grid md:grid-cols-3 gap-6">
+                        <PillarCard title="How You Are Wired" subtitle="Motivational Gifts" traits={results.topMotivational} db={wisdomDB} icon="heart" color="border-rose-500" />
+                        <PillarCard title="Your Best Role" subtitle="Ministry Gifts" traits={results.topMinistry} db={wisdomDB} icon="crown" color="border-kingdom-gold" />
+                        <PillarCard title="Your Superpower" subtitle="Spiritual Gifts" traits={results.topSpiritual} db={wisdomDB} icon="zap" color="border-kingdom-accent" />
+                    </div>
+
+                    <div className="glass-panel p-6 md:p-8 rounded-3xl border-t-8 border-t-red-500">
+                        <h3 className="text-3xl font-black text-white mb-2 flex items-center gap-3">
+                            <LucideIcon name="alert-octagon" className="w-10 h-10 text-red-500" /> 10 Things to Avoid
+                        </h3>
+                        <p className="text-lg text-slate-300 mb-8 font-medium">Because of your unique strengths, you are vulnerable to these specific traps. Watch out for them!</p>
+                        
+                        <div className="grid md:grid-cols-2 gap-4">
+                            {results.avoids.map((avoid, i) => (
+                                <div key={i} className="bg-slate-800/80 p-5 rounded-2xl border border-red-500/20 flex gap-4">
+                                    <div className="text-red-400 font-black text-xl shrink-0">{i+1}.</div>
+                                    <div>
+                                        <p className="text-white font-medium text-lg mb-2">{avoid.text}</p>
+                                        <p className="text-sm text-kingdom-gold font-bold">{avoid.scripture}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="glass-panel p-6 md:p-8 rounded-3xl border-t-8 border-t-emerald-500">
+                        <h3 className="text-3xl font-black text-white mb-2 flex items-center gap-3">
+                            <LucideIcon name="check-circle" className="w-10 h-10 text-emerald-500" /> 30 Things to Try
+                        </h3>
+                        <p className="text-lg text-slate-300 mb-8 font-medium">Do these activities to unlock your full potential at work.</p>
+                        
+                        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
+                            {results.tries.map((t, i) => (
+                                <div key={i} className="bg-slate-800/60 p-4 rounded-2xl flex gap-3 items-center border border-emerald-500/20 hover:bg-slate-700 transition-colors">
+                                    <div className="bg-emerald-500 text-kingdom-dark rounded-full w-8 h-8 flex items-center justify-center font-black shrink-0">{i+1}</div>
+                                    <span className="text-white font-medium">{t}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function PillarCard({ title, subtitle, traits, db, icon, color }) {
+            const formatTrait = (t) => t.replace('_Min', '');
+            return (
+                <div className={`glass-panel p-6 rounded-3xl border-t-8 ${color} flex flex-col h-full bg-slate-800/40`}>
+                    <div className="mb-4 text-white/80">
+                        <LucideIcon name={icon} className="w-10 h-10" />
+                    </div>
+                    <span className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">{subtitle}</span>
+                    <h3 className="text-2xl font-black text-white mb-6 leading-tight">{title}</h3>
+                    
+                    <div className="flex-1 space-y-6">
+                        {traits.length === 0 ? (
+                            <p className="text-slate-500 italic font-medium">No strong matches in this category.</p>
+                        ) : (
+                            traits.map(t => (
+                                <div key={t} className="bg-slate-900/50 p-4 rounded-2xl border border-slate-700">
+                                    <h4 className="text-xl font-black text-kingdom-gold mb-2">{formatTrait(t)}</h4>
+                                    <p className="text-base text-slate-300 font-medium leading-relaxed">{db[t]?.desc || "A foundational strength."}</p>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function PastResultsView({ history, onSelect, onBack }) {
+            return (
+                <div className="fade-in max-w-2xl mx-auto">
+                    <button onClick={onBack} className="mb-6 text-lg font-bold text-slate-400 hover:text-white flex items-center gap-2 bg-slate-800 px-6 py-3 rounded-full transition-colors w-fit">
+                        <LucideIcon name="arrow-left" className="w-5 h-5" /> Back Home
+                    </button>
+                    
+                    <h2 className="text-4xl font-serif font-black text-white mb-8 flex items-center gap-4">
+                        <LucideIcon name="folder-open" className="w-10 h-10 text-kingdom-gold" /> Your Past Results
+                    </h2>
+                    
+                    {history.length === 0 ? (
+                        <div className="text-center py-20 glass-panel rounded-3xl">
+                            <LucideIcon name="inbox" className="w-16 h-16 text-slate-500 mx-auto mb-4" />
+                            <p className="text-xl text-slate-400 font-medium">No results found yet.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {history.map((res, i) => (
+                                <div key={res.id} onClick={() => onSelect(res)} className="glass-panel p-6 rounded-2xl cursor-pointer hover:bg-slate-700 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-2 border-transparent hover:border-kingdom-gold/50">
+                                    <div>
+                                        <div className="text-sm font-bold text-slate-400 mb-1 flex items-center gap-2">
+                                            <LucideIcon name="calendar" className="w-4 h-4" /> {new Date(res.date).toLocaleDateString()} at {new Date(res.date).toLocaleTimeString()}
+                                        </div>
+                                        <div className="flex flex-wrap gap-2 mt-3">
+                                            {res.allTopTraits.slice(0, 3).map(t => (
+                                                <span key={t} className="bg-kingdom-gold text-kingdom-dark font-black px-3 py-1 rounded-full text-sm">
+                                                    {t.replace('_Min','')}
+                                                </span>
+                                            ))}
+                                            {res.allTopTraits.length > 3 && <span className="bg-slate-800 text-slate-300 font-bold px-3 py-1 rounded-full text-sm">+{res.allTopTraits.length - 3}</span>}
+                                        </div>
+                                    </div>
+                                    <button className="gold-bg text-kingdom-dark p-4 rounded-full shrink-0 shadow-lg">
+                                        <LucideIcon name="chevron-right" className="w-6 h-6 font-bold" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
